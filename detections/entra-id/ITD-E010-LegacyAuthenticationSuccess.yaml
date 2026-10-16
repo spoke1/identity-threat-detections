@@ -1,0 +1,47 @@
+id: 500a7558-4be7-475b-9364-62f6eb4126cb
+detectionId: ITD-E010
+name: Successful sign-in with legacy authentication
+description: |
+  Detects accounts that signed in successfully with a legacy authentication
+  protocol such as IMAP, POP, SMTP AUTH or Exchange ActiveSync with basic
+  authentication. These protocols cannot do MFA, which makes them the preferred
+  target of password spraying. Once legacy authentication is blocked, every
+  success is either an exception you know about or a gap in the policy.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - SigninLogs
+queryFrequency: 1d
+queryPeriod: 1d
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - InitialAccess
+  - DefenseEvasion
+relevantTechniques:
+  - T1078.004
+query: |
+  SigninLogs
+  | where ResultType == "0"
+  | where isnotempty(ClientAppUsed) and ClientAppUsed !in~ ("Browser", "Mobile Apps and Desktop clients")
+  | summarize SignIns = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), IpAddresses = make_set(IPAddress, 20), Apps = make_set(AppDisplayName, 10)
+      by UserPrincipalName, ClientAppUsed
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: UserPrincipalName
+falsePositives:
+  - Known exceptions such as multifunction printers that send mail through SMTP AUTH. Document them and exclude them by account.
+triage:
+  - Is the account a documented exception? If so, check that the exception still has an owner and an end date.
+  - If not, find out why the block policy did not apply (excluded user, report-only, other client type) and close the gap.
+  - Check the IP addresses for spraying activity (ITD-E007).
+preventiveControls:
+  - id-hub Level 1 · CA101 block legacy authentication
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://learn.microsoft.com/entra/identity/conditional-access/policy-block-legacy-authentication
+version: 1.0.0
+kind: Scheduled

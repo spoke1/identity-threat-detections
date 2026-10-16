@@ -1,0 +1,62 @@
+id: 5eb36ba9-56e6-4855-8282-917a4df426ff
+detectionId: ITD-A004
+name: "Kerberoasting: RC4 service tickets for many service accounts"
+description: |
+  Detects an account that requests RC4-encrypted Kerberos service tickets for at
+  least five different user-based service accounts within an hour. Kerberoasting
+  requests service tickets on purpose to crack the service account's password
+  offline; RC4 is requested because it cracks much faster than AES. In domains
+  that have moved to AES, even a single RC4 request for a privileged service
+  account is worth an alert; lower the threshold accordingly.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1558.003
+query: |
+  let Threshold = 5;
+  SecurityEvent
+  | where EventID == 4769
+  | parse EventData with * 'TicketEncryptionType">' TicketEncryptionType "<" *
+  | parse EventData with * 'Name="Status">' TicketStatus "<" *
+  | where TicketEncryptionType =~ "0x17" and TicketStatus =~ "0x0"
+  // Computer accounts and krbtgt have long random passwords and are not worth cracking.
+  | where not(ServiceName endswith "$") and ServiceName !~ "krbtgt"
+  | extend SourceIp = trim_start(@"::ffff:", IpAddress)
+  | summarize ServiceCount = dcount(ServiceName), Services = make_set(ServiceName, 50), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+      by TargetUserName, SourceIp
+  | where ServiceCount >= Threshold
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: TargetUserName
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: SourceIp
+falsePositives:
+  - Legacy applications and appliances that only support RC4.
+  - Vulnerability scanners and inventory tools that enumerate services. Document and exclude their accounts.
+triage:
+  - Which host requested the tickets (SourceIp), and is the requesting account expected to talk to these services?
+  - Are any of the requested service accounts privileged? Those passwords must be changed first.
+  - If not legitimate, isolate the host, reset the passwords of the requested service accounts and move them to gMSAs.
+preventiveControls:
+  - hybrid-workplace-automation · Get-ADTier0Exposure.ps1 finding Kerberoastable (no SPNs on privileged accounts, gMSAs for services)
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+  - https://learn.microsoft.com/windows/security/threat-protection/auditing/event-4769
+version: 1.0.0
+kind: Scheduled

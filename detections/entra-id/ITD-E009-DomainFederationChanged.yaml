@@ -1,0 +1,54 @@
+id: 8a9ffbb0-907f-4a74-b8c4-83b2b141a06b
+detectionId: ITD-E009
+name: Domain federation or authentication settings changed
+description: |
+  Detects a change of the authentication type or the federation settings of a
+  domain in the tenant. An attacker who converts a domain to federated, or adds
+  a second token-signing certificate, can issue tokens for any user of that
+  domain from infrastructure they control, including MFA claims. Changes like
+  this are rare and should always be tied to a planned project.
+severity: High
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+  - PrivilegeEscalation
+relevantTechniques:
+  - T1484.002
+query: |
+  AuditLogs
+  | where OperationName in~ ("Set domain authentication", "Set federation settings on domain")
+  | where Result =~ "success"
+  | extend DomainName = tostring(TargetResources[0].displayName)
+  | extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))
+  | extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)
+  | extend ModifiedProperties = TargetResources[0].modifiedProperties
+  | project TimeGenerated, OperationName, DomainName, Actor, ActorIpAddress, ModifiedProperties, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Actor
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: ActorIpAddress
+falsePositives:
+  - Planned migrations between federation and cloud authentication, and planned renewals of AD FS token-signing certificates.
+triage:
+  - Is there a change request for this domain?
+  - Compare the issuer URI and signing certificate in ModifiedProperties with your known federation servers.
+  - If not legitimate, revert the domain to managed authentication, revoke sessions of all users of the domain and investigate the actor.
+preventiveControls:
+  - id-hub Level 3 · zero standing privilege for Global and Hybrid Identity Administrator
+references:
+  - https://attack.mitre.org/techniques/T1484/002/
+  - https://learn.microsoft.com/entra/identity/monitoring-health/reference-audit-activities
+version: 1.0.0
+kind: Scheduled

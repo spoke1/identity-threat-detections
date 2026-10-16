@@ -1,0 +1,52 @@
+id: 9b0760ae-65d7-46da-bd3a-e0f73400a2fc
+detectionId: ITD-A006
+name: Security event log cleared
+description: |
+  Detects clearing of the Windows Security event log. Attackers clear the log
+  on domain controllers and servers to remove the traces of logons, privilege
+  use and persistence. Clearing the log manually is rarely part of normal
+  operations, and the clearing itself is always logged.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+relevantTechniques:
+  - T1070.001
+query: |
+  SecurityEvent
+  | where EventID == 1102
+  | project TimeGenerated, Computer, Activity, SubjectAccount, SubjectUserName, SubjectUserSid, SubjectDomainName, EventData
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: SubjectUserName
+      - identifier: Sid
+        columnName: SubjectUserSid
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+falsePositives:
+  - Rebuilding a server or a lab system. Exclude lab hosts by name.
+triage:
+  - Is there a reason for the clearing, such as a rebuild?
+  - What happened on the host just before the clearing? Events already forwarded to the SIEM survive the clearing.
+  - If not legitimate, treat the host and the acting account as compromised.
+preventiveControls:
+  - Forward security events to the SIEM in near real time, so clearing the local log does not remove the evidence.
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+  - https://learn.microsoft.com/windows/security/threat-protection/auditing/event-1102
+version: 1.0.0
+kind: Scheduled

@@ -1,0 +1,16 @@
+.tools/
+out/
+
+# Local credentials and certificates (never commit)
+*.pfx
+*.pem
+*.key
+.env
+*.local.ps1
+*.local.json
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,60 @@
+id: d9fd40ae-b572-4a55-9916-75007ef94133
+detectionId: ITD-E003
+name: Consent to an application with high-risk permissions
+description: |
+  Detects user or admin consent to an application that requests access to mail,
+  files or the directory. Consent phishing does not steal a password: the victim
+  grants a malicious application a token that keeps working after a password
+  reset, and Conditional Access for users does not apply to the application's
+  later access. The list of high-risk permissions is a starting point; extend it
+  with the permissions that matter in your tenant.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1528
+query: |
+  let HighRiskPermissions = dynamic(["Mail.Read", "Mail.ReadWrite", "Mail.Send", "MailboxSettings.ReadWrite", "Files.Read.All", "Files.ReadWrite.All", "Sites.Read.All", "Sites.ReadWrite.All", "Notes.Read.All", "User.ReadWrite.All", "Directory.ReadWrite.All", "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "full_access_as_app", "EWS.AccessAsUser.All"]);
+  AuditLogs
+  | where OperationName =~ "Consent to application"
+  | where Result =~ "success"
+  | mv-apply Property = TargetResources[0].modifiedProperties on (
+      summarize Props = make_bag(bag_pack(tostring(Property.displayName), trim(@'"', tostring(Property.newValue))))
+    )
+  | extend Permissions = tostring(Props["ConsentAction.Permissions"]), IsAdminConsent = tostring(Props["ConsentContext.IsAdminConsent"])
+  | where Permissions has_any (HighRiskPermissions)
+  | extend AppName = tostring(TargetResources[0].displayName), ServicePrincipalId = tostring(TargetResources[0].id)
+  | extend Actor = tostring(InitiatedBy.user.userPrincipalName), ActorIpAddress = tostring(InitiatedBy.user.ipAddress)
+  | project TimeGenerated, AppName, ServicePrincipalId, IsAdminConsent, Permissions, Actor, ActorIpAddress, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Actor
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: ActorIpAddress
+falsePositives:
+  - Admin consent for a reviewed line-of-business or SaaS application during onboarding.
+  - Users consenting to verified-publisher applications that the tenant allows.
+triage:
+  - Is the application known, from a verified publisher and used by others in the tenant?
+  - Did the user receive an email or chat message with a link shortly before the consent?
+  - Which permissions were granted, and did the application access mail or files after the consent?
+  - If malicious, revoke the consent, disable the service principal, revoke the user's sessions and search for the same application in other users' consents.
+preventiveControls:
+  - id-hub Level 1 · application consent (user consent limited, admin consent workflow)
+references:
+  - https://attack.mitre.org/techniques/T1528/
+  - https://learn.microsoft.com/entra/identity/enterprise-apps/configure-user-consent
+version: 1.0.0
+kind: Scheduled

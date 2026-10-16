@@ -1,0 +1,951 @@
+[
+  {
+    "name": "e41f3dce-8782-4698-a9fd-432076e74bf4",
+    "properties": {
+      "displayName": "ITD-A001 Directory replication (DCSync) by an account that is not a domain controller",
+      "description": "Detects directory replication requests for password data from a user account.\nDomain controllers replicate with their computer accounts. A user account that\nexercises the replication rights is either the Entra Connect AD DS connector,\nwhich is excluded, or someone pulling password hashes, including the krbtgt\nkey, without touching a domain controller's disk.\nRequires Audit Directory Service Access and an auditing entry on the domain\nroot for the replication rights.\n\nMITRE ATT&CK: T1003.006\n\nFalse positives:\n- Entra Connect connector accounts with a custom name. Add them to the exclusion.\n- Identity security tools that read replication data with a dedicated account. Document and exclude them by SID.\n\nTriage:\n- Treat as critical until proven otherwise; an attacker who replicated the krbtgt key can forge tickets for any account.\n- Identify the source of the logon session (SubjectLogonId, event 4624 on the same domain controller) to find the requesting host.\n- If not legitimate, isolate the source host, reset the account, and plan a double krbtgt reset and a reset of all Tier-0 credentials.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 finding ReplicationRights (no replication rights outside domain controllers)\n\nSource: identity-threat-detections ITD-A001 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "// DS-Replication-Get-Changes, -Get-Changes-All and -Get-Changes-In-Filtered-Set\nlet ReplicationRights = dynamic([\"1131f6aa-9c07-11d1-f79f-00c04fc2dcd2\", \"1131f6ad-9c07-11d1-f79f-00c04fc2dcd2\", \"89e95b76-444d-4c62-991a-0facbeda640c\"]);\nSecurityEvent\n| where EventID == 4662\n| where ObjectServer =~ \"DS\"\n| where AccountType != \"Machine\" and not(SubjectUserName endswith \"$\")\n| where Properties has_any (ReplicationRights)\n// Entra Connect AD DS connector account (default naming). Add custom connector accounts here.\n| where not(SubjectUserName startswith \"MSOL_\")\n| summarize Events = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)\n    by Computer, SubjectAccount, SubjectUserName, SubjectUserSid, SubjectLogonId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1003"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "SubjectUserName"
+            },
+            {
+              "identifier": "Sid",
+              "columnName": "SubjectUserSid"
+            }
+          ]
+        },
+        {
+          "entityType": "Host",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Computer"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "7447e2c4-f68d-4f05-9a80-76159243e4ab",
+    "properties": {
+      "displayName": "ITD-A002 Domain trust created, removed or modified",
+      "description": "Detects the creation, removal or modification of a trust between this domain\nand another domain or forest. A new or weakened trust (for example SID\nfiltering disabled) opens a path for principals of the other side into this\ndomain. Trust changes are rare, so each one should match a planned change.\n\nMITRE ATT&CK: T1484.002\n\nFalse positives:\n- Planned trust changes during mergers, migrations or the decommissioning of a domain.\n- Line-of-business software that recreates a trust it depends on. Verify with the vendor and document it.\n\nTriage:\n- Is there a change request for this trust and partner domain?\n- Check direction, type and SID filtering in EventData. A trust without SID filtering is especially dangerous.\n- Correlate with logons of the acting account in the hour before the change.\n- If not legitimate, remove the trust and investigate the acting account as compromised.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 (Tier-0 membership limited to the accounts that need it)\n\nSource: identity-threat-detections ITD-A002 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "// 4706 trust created, 4707 trust removed, 4716 trust information modified\nSecurityEvent\n| where EventID in (4706, 4707, 4716)\n| project TimeGenerated, Computer, EventID, Activity, SubjectAccount, SubjectUserName, SubjectUserSid, DomainName, DomainSid, EventData",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "DefenseEvasion",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1484"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "SubjectUserName"
+            },
+            {
+              "identifier": "Sid",
+              "columnName": "SubjectUserSid"
+            }
+          ]
+        },
+        {
+          "entityType": "Host",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Computer"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "183e739d-59a9-49e5-9fa6-77f277913758",
+    "properties": {
+      "displayName": "ITD-A003 Member added to a Tier-0 group",
+      "description": "Detects additions to the built-in privileged groups of Active Directory:\nAdministrators, Domain Admins, Enterprise Admins, Schema Admins, Account,\nServer, Print and Backup Operators, Group Policy Creator Owners, Key Admins and\nEnterprise Key Admins. Groups are matched by well-known SID and RID, so the\nrule also works in domains with localised group names.\n\nMITRE ATT&CK: T1098.007\n\nFalse positives:\n- Approved admin onboarding. With a tiered admin model these changes are rare and ticketed.\n- Members added temporarily for a maintenance task. They should also be removed again (event 4729, 4733, 4757).\n\nTriage:\n- Is there an approved request for this membership?\n- Who made the change, and from which session? A change made by an account that is itself new to Tier 0 is a strong signal.\n- If not legitimate, remove the member, disable the account and investigate the acting account.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 (review of PrivilegedAccounts.csv)\n\nSource: identity-threat-detections ITD-A003 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "let Tier0BuiltinGroupSids = dynamic([\"S-1-5-32-544\", \"S-1-5-32-548\", \"S-1-5-32-549\", \"S-1-5-32-550\", \"S-1-5-32-551\"]);\n// Domain Admins, Schema Admins, Enterprise Admins, Group Policy Creator Owners, Key Admins, Enterprise Key Admins\nlet Tier0GroupRids = dynamic([\"512\", \"518\", \"519\", \"520\", \"526\", \"527\"]);\nSecurityEvent\n// 4728 global, 4732 domain local, 4756 universal security group\n| where EventID in (4728, 4732, 4756)\n| extend GroupRid = extract(@\"-(\\d+)$\", 1, TargetSid)\n| where TargetSid in (Tier0BuiltinGroupSids) or (TargetSid startswith \"S-1-5-21-\" and GroupRid in (Tier0GroupRids))\n| project TimeGenerated, Computer, Activity, GroupName = TargetUserName, GroupSid = TargetSid, MemberName, MemberSid, SubjectAccount, SubjectUserName, SubjectUserSid",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "Persistence",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1098"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "SubjectUserName"
+            },
+            {
+              "identifier": "Sid",
+              "columnName": "SubjectUserSid"
+            }
+          ]
+        },
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Sid",
+              "columnName": "MemberSid"
+            }
+          ]
+        },
+        {
+          "entityType": "Host",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Computer"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "5eb36ba9-56e6-4855-8282-917a4df426ff",
+    "properties": {
+      "displayName": "ITD-A004 Kerberoasting: RC4 service tickets for many service accounts",
+      "description": "Detects an account that requests RC4-encrypted Kerberos service tickets for at\nleast five different user-based service accounts within an hour. Kerberoasting\nrequests service tickets on purpose to crack the service account's password\noffline; RC4 is requested because it cracks much faster than AES. In domains\nthat have moved to AES, even a single RC4 request for a privileged service\naccount is worth an alert; lower the threshold accordingly.\n\nMITRE ATT&CK: T1558.003\n\nFalse positives:\n- Legacy applications and appliances that only support RC4.\n- Vulnerability scanners and inventory tools that enumerate services. Document and exclude their accounts.\n\nTriage:\n- Which host requested the tickets (SourceIp), and is the requesting account expected to talk to these services?\n- Are any of the requested service accounts privileged? Those passwords must be changed first.\n- If not legitimate, isolate the host, reset the passwords of the requested service accounts and move them to gMSAs.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 finding Kerberoastable (no SPNs on privileged accounts, gMSAs for services)\n\nSource: identity-threat-detections ITD-A004 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "let Threshold = 5;\nSecurityEvent\n| where EventID == 4769\n| parse EventData with * 'TicketEncryptionType\">' TicketEncryptionType \"<\" *\n| parse EventData with * 'Name=\"Status\">' TicketStatus \"<\" *\n| where TicketEncryptionType =~ \"0x17\" and TicketStatus =~ \"0x0\"\n// Computer accounts and krbtgt have long random passwords and are not worth cracking.\n| where not(ServiceName endswith \"$\") and ServiceName !~ \"krbtgt\"\n| extend SourceIp = trim_start(@\"::ffff:\", IpAddress)\n| summarize ServiceCount = dcount(ServiceName), Services = make_set(ServiceName, 50), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)\n    by TargetUserName, SourceIp\n| where ServiceCount >= Threshold",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1558"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "TargetUserName"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "SourceIp"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "5438e878-b21d-4f53-be0b-095f3076753d",
+    "properties": {
+      "displayName": "ITD-A005 Password spray against Active Directory",
+      "description": "Detects one source address that fails Kerberos pre-authentication or NTLM\nlogon with a wrong password for at least ten different accounts within an\nhour. On the domain controllers, the rule sees Kerberos pre-authentication\nfailures (4771) and failed logons that reach a domain controller directly,\nfor example LDAP binds from VPN gateways, firewalls or web portals (4625).\nNTLM failures that a member server passes through to a domain controller\n(4776) carry no source address and are not covered.\n\nMITRE ATT&CK: T1110.003\n\nFalse positives:\n- Terminal servers, VPN concentrators and proxies that authenticate many users and forward their typos.\n- Services configured with an old password for several accounts.\n\nTriage:\n- Which system owns the source address? For a VPN or firewall, find the external address in its own logs.\n- Did any of the targeted accounts log on successfully from the same source afterwards (event 4624)?\n- If not legitimate, block the source, reset the passwords of accounts with a later successful logon and review them for misuse.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 findings PasswordNeverExpires and PasswordOld for privileged accounts\n\nSource: identity-threat-detections ITD-A005 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "let Threshold = 10;\nSecurityEvent\n// 4625 with 0xC000006A = wrong password (NTLM), 4771 with 0x18 = wrong password (Kerberos pre-authentication)\n| where (EventID == 4625 and SubStatus =~ \"0xc000006a\") or (EventID == 4771 and Status =~ \"0x18\")\n| extend SourceIp = trim_start(@\"::ffff:\", IpAddress)\n| where isnotempty(SourceIp) and SourceIp !in (\"-\", \"127.0.0.1\", \"::1\")\n| summarize TargetedAccounts = dcount(TargetUserName), Failures = count(), SampleAccounts = make_set(TargetUserName, 20),\n    ReportingHosts = make_set(Computer, 10), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)\n    by SourceIp\n| where TargetedAccounts >= Threshold",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1110"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "SourceIp"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "9b0760ae-65d7-46da-bd3a-e0f73400a2fc",
+    "properties": {
+      "displayName": "ITD-A006 Security event log cleared",
+      "description": "Detects clearing of the Windows Security event log. Attackers clear the log\non domain controllers and servers to remove the traces of logons, privilege\nuse and persistence. Clearing the log manually is rarely part of normal\noperations, and the clearing itself is always logged.\n\nMITRE ATT&CK: T1070.001\n\nFalse positives:\n- Rebuilding a server or a lab system. Exclude lab hosts by name.\n\nTriage:\n- Is there a reason for the clearing, such as a rebuild?\n- What happened on the host just before the clearing? Events already forwarded to the SIEM survive the clearing.\n- If not legitimate, treat the host and the acting account as compromised.\n\nPreventive controls:\n- Forward security events to the SIEM in near real time, so clearing the local log does not remove the evidence.\n\nSource: identity-threat-detections ITD-A006 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "SecurityEvent\n| where EventID == 1102\n| project TimeGenerated, Computer, Activity, SubjectAccount, SubjectUserName, SubjectUserSid, SubjectDomainName, EventData",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "DefenseEvasion"
+      ],
+      "techniques": [
+        "T1070"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "SubjectUserName"
+            },
+            {
+              "identifier": "Sid",
+              "columnName": "SubjectUserSid"
+            }
+          ]
+        },
+        {
+          "entityType": "Host",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Computer"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "8d3d5735-9970-459c-b42e-ab1087ce2936",
+    "properties": {
+      "displayName": "ITD-A007 Tier-0 account signed in to a host outside Tier 0",
+      "description": "Detects interactive, remote interactive, batch, service, cached and\nNewCredentials logons of Tier-0 accounts on hosts that are not Tier-0 assets.\nThese logon types leave reusable credentials in memory. One Domain Admin\nlogon on a workstation or member server turns a compromise of that host into\na compromise of the domain; the tiered admin model exists to prevent exactly\nthis. Accounts come from the watchlist Tier0Accounts (SearchKey =\nsAMAccountName), hosts from the watchlist Tier0Hosts (SearchKey = host name\nwithout domain).\n\nMITRE ATT&CK: T1078.002\n\nFalse positives:\n- Privileged access workstations or jump servers that are missing from the Tier0Hosts watchlist.\n- Scheduled tasks or services on member servers that still run as a Domain Admin. These are findings, not noise; move them to a service account with the rights they need.\n\nTriage:\n- Which host, which logon type, and who used the account at that time?\n- Is the host a privileged access workstation that is missing from the watchlist? If so, add it.\n- If not, treat the account's credentials as exposed on that host. Check the host for compromise, then rotate the account's password and investigate how it got there.\n\nPreventive controls:\n- hybrid-workplace-automation · Get-ADTier0Exposure.ps1 findings PrivilegedAccountDelegable and ComputerInPrivilegedGroup (Protected Users, sensitive accounts)\n- Authentication policies and silos, or user rights assignments that deny Tier-0 logons outside Tier 0\n\nSource: identity-threat-detections ITD-A007 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "let Tier0Accounts = _GetWatchlist('Tier0Accounts') | project Account = tolower(tostring(SearchKey));\nlet Tier0Hosts = _GetWatchlist('Tier0Hosts') | project HostName = tolower(tostring(SearchKey));\nSecurityEvent\n| where EventID == 4624\n// 2 interactive, 4 batch, 5 service, 9 NewCredentials, 10 remote interactive, 11 cached interactive\n| where LogonType in (2, 4, 5, 9, 10, 11)\n| extend Account = tolower(TargetUserName), HostName = tolower(tostring(split(Computer, \".\")[0]))\n| where Account in (Tier0Accounts)\n| where HostName !in (Tier0Hosts)\n| summarize Logons = count(), LogonTypes = make_set(LogonTypeName, 10), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)\n    by Computer, HostName, TargetAccount, TargetUserName, IpAddress",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "DefenseEvasion",
+        "Persistence",
+        "PrivilegeEscalation",
+        "InitialAccess"
+      ],
+      "techniques": [
+        "T1078"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "Name",
+              "columnName": "TargetUserName"
+            }
+          ]
+        },
+        {
+          "entityType": "Host",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Computer"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "IpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "a116998e-dfb6-4ab6-b6b4-1a1355a87c5c",
+    "properties": {
+      "displayName": "ITD-E001 Conditional Access policy created, changed or deleted",
+      "description": "Detects every change to a Conditional Access policy. Attackers with a privileged\nsession weaken Conditional Access to keep access: they switch a policy off,\nadd their account or a trusted location to the exclusions, or remove the MFA\nrequirement. The query adds the old and new state and flags changed exclusions\nso the analyst sees at a glance whether the change weakened the policy.\n\nMITRE ATT&CK: T1556.009\n\nFalse positives:\n- Planned changes by the identity team. Compare with the change calendar; deployments from a pipeline show the automation app as actor.\n- Microsoft-managed policies, which are changed by Microsoft and show a Microsoft service as actor.\n\nTriage:\n- Was the change planned and approved? Ask the actor through a channel other than their mailbox.\n- Did the change weaken the policy? Look at NewState (disabled or report-only) and ExclusionsChanged.\n- Check the actor's sign-ins of the last 24 hours for unfamiliar locations, devices or risk.\n- If the change is not legitimate, revert it from the last export of the policies and revoke the actor's sessions.\n\nPreventive controls:\n- id-hub Level 3 · zero standing privilege for the Conditional Access Administrator role (PIM with authentication context)\n- id-hub Level 3 · CA301 phishing-resistant MFA for admins\n\nSource: identity-threat-detections ITD-E001 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "AuditLogs\n| where OperationName in~ (\"Add conditional access policy\", \"Update conditional access policy\", \"Delete conditional access policy\")\n| where Result =~ \"success\"\n| extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))\n| extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)\n| extend PolicyName = tostring(TargetResources[0].displayName), PolicyId = tostring(TargetResources[0].id)\n| extend ModifiedProperties = TargetResources[0].modifiedProperties\n| extend OldPolicy = parse_json(tostring(ModifiedProperties[0].oldValue)), NewPolicy = parse_json(tostring(ModifiedProperties[0].newValue))\n| extend OldState = tostring(OldPolicy.state), NewState = tostring(NewPolicy.state)\n| extend ExclusionsChanged = tostring(OldPolicy.conditions.users.excludeUsers) != tostring(NewPolicy.conditions.users.excludeUsers)\n    or tostring(OldPolicy.conditions.users.excludeGroups) != tostring(NewPolicy.conditions.users.excludeGroups)\n    or tostring(OldPolicy.conditions.users.excludeRoles) != tostring(NewPolicy.conditions.users.excludeRoles)\n| project TimeGenerated, OperationName, PolicyName, PolicyId, OldState, NewState, ExclusionsChanged, Actor, ActorIpAddress, ModifiedProperties, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "DefenseEvasion",
+        "Persistence",
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1556"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Actor"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "2d3d0286-1add-42e8-8524-0150c8230556",
+    "properties": {
+      "displayName": "ITD-E002 New credential added to an application or service principal",
+      "description": "Detects a new client secret or certificate on an app registration or service\nprincipal. A credential on an application with high Graph permissions is a\npersistent backdoor: it survives password resets and MFA changes of every\nuser and signs in without Conditional Access for users. The query compares\nthe number of keys before and after the change, so it only fires when a key\nwas added.\n\nMITRE ATT&CK: T1098.001\n\nFalse positives:\n- Planned secret or certificate rotation by the application owner or a rotation automation.\n- New app registrations, which receive their first credential shortly after creation.\n\nTriage:\n- Is the actor an owner of the application, and was a rotation due?\n- What permissions does the application hold? A credential on an app with Mail, Files, Directory or RoleManagement permissions is critical.\n- Check the service principal sign-ins after the change for unfamiliar IP addresses.\n- If the credential is not legitimate, remove it, review the application's activity since the change and rotate the remaining credentials.\n\nPreventive controls:\n- id-hub Level 2 · application credentials (named owners, certificates or federated credentials instead of secrets)\n- id-hub Level 3 · CA306 workload identities only from trusted locations\n\nSource: identity-threat-detections ITD-E002 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "AuditLogs\n| where OperationName has_any (\"Add service principal\", \"Certificates and secrets management\")\n| where Result =~ \"success\"\n| mv-apply Target = TargetResources on (\n    where tostring(Target.type) in~ (\"Application\", \"ServicePrincipal\")\n    | extend TargetType = tostring(Target.type), AppName = tostring(Target.displayName), AppObjectId = tostring(Target.id), Properties = Target.modifiedProperties\n  )\n| mv-apply Property = Properties on (\n    where tostring(Property.displayName) =~ \"KeyDescription\"\n    | extend NewKeys = parse_json(tostring(Property.newValue)), OldKeys = parse_json(tostring(Property.oldValue))\n  )\n| where array_length(NewKeys) > array_length(OldKeys)\n| extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))\n| extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)\n| project TimeGenerated, OperationName, TargetType, AppName, AppObjectId, NewKeys, Actor, ActorIpAddress, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "Persistence",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1098"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Actor"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "d9fd40ae-b572-4a55-9916-75007ef94133",
+    "properties": {
+      "displayName": "ITD-E003 Consent to an application with high-risk permissions",
+      "description": "Detects user or admin consent to an application that requests access to mail,\nfiles or the directory. Consent phishing does not steal a password: the victim\ngrants a malicious application a token that keeps working after a password\nreset, and Conditional Access for users does not apply to the application's\nlater access. The list of high-risk permissions is a starting point; extend it\nwith the permissions that matter in your tenant.\n\nMITRE ATT&CK: T1528\n\nFalse positives:\n- Admin consent for a reviewed line-of-business or SaaS application during onboarding.\n- Users consenting to verified-publisher applications that the tenant allows.\n\nTriage:\n- Is the application known, from a verified publisher and used by others in the tenant?\n- Did the user receive an email or chat message with a link shortly before the consent?\n- Which permissions were granted, and did the application access mail or files after the consent?\n- If malicious, revoke the consent, disable the service principal, revoke the user's sessions and search for the same application in other users' consents.\n\nPreventive controls:\n- id-hub Level 1 · application consent (user consent limited, admin consent workflow)\n\nSource: identity-threat-detections ITD-E003 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "let HighRiskPermissions = dynamic([\"Mail.Read\", \"Mail.ReadWrite\", \"Mail.Send\", \"MailboxSettings.ReadWrite\", \"Files.Read.All\", \"Files.ReadWrite.All\", \"Sites.Read.All\", \"Sites.ReadWrite.All\", \"Notes.Read.All\", \"User.ReadWrite.All\", \"Directory.ReadWrite.All\", \"Application.ReadWrite.All\", \"AppRoleAssignment.ReadWrite.All\", \"RoleManagement.ReadWrite.Directory\", \"full_access_as_app\", \"EWS.AccessAsUser.All\"]);\nAuditLogs\n| where OperationName =~ \"Consent to application\"\n| where Result =~ \"success\"\n| mv-apply Property = TargetResources[0].modifiedProperties on (\n    summarize Props = make_bag(bag_pack(tostring(Property.displayName), trim(@'\"', tostring(Property.newValue))))\n  )\n| extend Permissions = tostring(Props[\"ConsentAction.Permissions\"]), IsAdminConsent = tostring(Props[\"ConsentContext.IsAdminConsent\"])\n| where Permissions has_any (HighRiskPermissions)\n| extend AppName = tostring(TargetResources[0].displayName), ServicePrincipalId = tostring(TargetResources[0].id)\n| extend Actor = tostring(InitiatedBy.user.userPrincipalName), ActorIpAddress = tostring(InitiatedBy.user.ipAddress)\n| project TimeGenerated, AppName, ServicePrincipalId, IsAdminConsent, Permissions, Actor, ActorIpAddress, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1528"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Actor"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "966224c0-65e8-441d-ab14-7b52fce8db10",
+    "properties": {
+      "displayName": "ITD-E004 Directory role assigned outside Privileged Identity Management",
+      "description": "Detects a permanent directory role assignment that was made directly instead\nof through Privileged Identity Management. In a tenant that uses PIM, direct\nassignments bypass approval, justification and time limits. An attacker with\na privileged session uses them to give a second account standing privilege\nthat survives the loss of the first.\n\nMITRE ATT&CK: T1098.003\n\nFalse positives:\n- Break-glass accounts, which keep permanent Global Administrator by design.\n- Tenants or roles that are not managed with PIM yet. Exclude those roles until they are.\n\nTriage:\n- Which role was assigned, and to whom? Global, Privileged Role and Privileged Authentication Administrator are critical.\n- Was the assignment requested through the normal process?\n- Check the actor's and the target's sign-ins and audit activity since the assignment.\n- If not legitimate, remove the assignment, revoke both accounts' sessions and review what the target did with the role.\n\nPreventive controls:\n- id-hub Level 2 · PIM for all privileged roles\n- id-hub Level 3 · zero standing privilege, PIM activation with authentication context\n\nSource: identity-threat-detections ITD-E004 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "AuditLogs\n| where Category =~ \"RoleManagement\"\n| where OperationName =~ \"Add member to role outside of PIM\"\n    or (OperationName =~ \"Add member to role\" and LoggedByService =~ \"Core Directory\" and Identity != \"MS-PIM\")\n| where Result =~ \"success\"\n| mv-apply Property = TargetResources[0].modifiedProperties on (\n    summarize Props = make_bag(bag_pack(tostring(Property.displayName), trim(@'\"', tostring(Property.newValue))))\n  )\n| extend RoleName = tostring(Props[\"Role.DisplayName\"])\n| extend TargetUser = tostring(TargetResources[0].userPrincipalName), TargetObjectId = tostring(TargetResources[0].id)\n| extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))\n| extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)\n| project TimeGenerated, OperationName, RoleName, TargetUser, TargetObjectId, Actor, ActorIpAddress, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "Persistence",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1098"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "TargetUser"
+            }
+          ]
+        },
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Actor"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "f9e19f6f-7cc7-4c34-8dbf-4e2ac8eab090",
+    "properties": {
+      "displayName": "ITD-E005 Successful sign-in with the device code flow",
+      "description": "Detects successful sign-ins that used the OAuth device code flow. Device code\nphishing sends the victim a legitimate Microsoft sign-in page with a code the\nattacker generated. The victim completes MFA, and the attacker's device\nreceives the tokens. Most users never need this flow, so every successful use\noutside the known exceptions deserves a look.\n\nMITRE ATT&CK: T1528\n\nFalse positives:\n- Admins who sign in to the Azure CLI or PowerShell on headless hosts.\n- Meeting room devices and other input-constrained devices that are enrolled with a device code.\n\nTriage:\n- Does the user know the sign-in? Ask by phone or chat, not by email.\n- Is the IP address or country unusual for the user, or different from the user's other sign-ins at the same time?\n- Did the user receive a message with a code and a link to microsoft.com/devicelogin shortly before?\n- If not legitimate, revoke the user's sessions and refresh tokens, and review mail and file access since the sign-in.\n\nPreventive controls:\n- id-hub Level 2 · CA209 block device code flow\n\nSource: identity-threat-detections ITD-E005 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "SigninLogs\n| where AuthenticationProtocol =~ \"deviceCode\" or OriginalTransferMethod =~ \"deviceCodeFlow\"\n| where ResultType == \"0\"\n| extend Country = tostring(LocationDetails.countryOrRegion), City = tostring(LocationDetails.city)\n| extend DeviceOs = tostring(DeviceDetail.operatingSystem), DeviceCompliant = tostring(DeviceDetail.isCompliant)\n| project TimeGenerated, UserPrincipalName, AppDisplayName, ResourceDisplayName, IPAddress, Country, City, DeviceOs, DeviceCompliant, UserAgent, ConditionalAccessStatus, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1528"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "UserPrincipalName"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "IPAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "b8a0fc95-f5c8-478a-9ff0-d1fd0da2098d",
+    "properties": {
+      "displayName": "ITD-E006 Authentication method registered after a risky sign-in",
+      "description": "Detects the registration of a new authentication method within four hours\nafter a medium or high risk sign-in of the same user. After stealing a\npassword or a session, attackers register their own authenticator app or\nphone number. From then on they pass MFA on their own, and resetting the\npassword no longer locks them out.\n\nMITRE ATT&CK: T1098.005\n\nFalse positives:\n- A user who travels, gets flagged as risky and sets up a new phone on the same day.\n- Risk detections from VPN or anonymising networks that the organisation uses.\n\nTriage:\n- Compare the IP address of the registration with the risky sign-in and the user's usual locations.\n- Ask the user, by phone, whether they registered a new method.\n- If not legitimate, delete the new method, revoke all sessions, reset the password and confirm the remaining methods with the user.\n\nPreventive controls:\n- id-hub Level 2 · CA206 security info registration only with MFA or from trusted locations\n- id-hub Level 1 · Temporary Access Pass for onboarding and recovery\n\nSource: identity-threat-detections ITD-E006 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "let RiskySignIns = SigninLogs\n    | where TimeGenerated > ago(1d)\n    | where RiskLevelDuringSignIn in~ (\"medium\", \"high\")\n    | project RiskyTime = TimeGenerated, UserPrincipalName = tolower(UserPrincipalName), RiskLevelDuringSignIn, RiskyIpAddress = IPAddress;\nAuditLogs\n| where TimeGenerated > ago(1h)\n| where OperationName in~ (\"User registered security info\", \"Admin registered security info\", \"User changed default security info\")\n| where Result =~ \"success\"\n| extend UserPrincipalName = tolower(coalesce(tostring(TargetResources[0].userPrincipalName), tostring(InitiatedBy.user.userPrincipalName)))\n| extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress), Detail = ResultReason\n| join kind=inner RiskySignIns on UserPrincipalName\n| where TimeGenerated between (RiskyTime .. (RiskyTime + 4h))\n| summarize arg_max(RiskyTime, RiskLevelDuringSignIn, RiskyIpAddress) by TimeGenerated, UserPrincipalName, OperationName, Detail, ActorIpAddress, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "P1D",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "Persistence",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1098"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "UserPrincipalName"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "185053d4-b294-4391-9e5d-37348da7843f",
+    "properties": {
+      "displayName": "ITD-E007 Password spray against Microsoft Entra ID",
+      "description": "Detects one IP address that fails to sign in to at least ten different\naccounts within an hour with a wrong password or a smart lockout. Password\nspraying tries one or two common passwords against many accounts to stay\nbelow the lockout threshold. The result lists accounts that signed in\nsuccessfully from the same address in the same hour; those accounts are\nlikely compromised.\n\nMITRE ATT&CK: T1110.003\n\nFalse positives:\n- Shared egress addresses (proxy, VPN, NAT) where many users mistype passwords at the start of the day.\n- Misconfigured applications or devices that retry old passwords of several accounts.\n\nTriage:\n- Is the IP address your own egress or a known partner? If so, look for one client causing the failures.\n- System.Collections.Specialized.OrderedDictionary\n- For compromised accounts, reset the password, revoke sessions and check for new authentication methods (ITD-E006).\n\nPreventive controls:\n- id-hub Level 1 · CA101 block legacy authentication\n- id-hub Level 2 · CA201 MFA for all users and apps\n\nSource: identity-threat-detections ITD-E007 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "let FailureCodes = dynamic([\"50126\", \"50053\"]);\nlet Threshold = 10;\nSigninLogs\n| where ResultType in (FailureCodes) or ResultType == \"0\"\n| summarize\n    TargetedAccounts = dcountif(UserPrincipalName, ResultType in (FailureCodes)),\n    Failures = countif(ResultType in (FailureCodes)),\n    SampleAccounts = make_set_if(UserPrincipalName, ResultType in (FailureCodes), 20),\n    SuccessfulAccounts = make_set_if(UserPrincipalName, ResultType == \"0\", 20),\n    Apps = make_set(AppDisplayName, 10),\n    FirstSeen = min(TimeGenerated),\n    LastSeen = max(TimeGenerated)\n    by IPAddress\n| where TargetedAccounts >= Threshold\n| extend SuccessCount = array_length(SuccessfulAccounts)",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "CredentialAccess"
+      ],
+      "techniques": [
+        "T1110"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "IPAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "a4d69a73-15df-4f4f-b321-7252ea5d2554",
+    "properties": {
+      "displayName": "ITD-E008 Sign-in attempt with a break-glass account",
+      "description": "Detects every sign-in attempt, successful or not, with an emergency access\naccount. Break-glass accounts are excluded from Conditional Access and hold\npermanent Global Administrator, so any use outside a declared emergency or a\nscheduled test is an incident. The accounts are read from the watchlist\nBreakGlassAccounts (SearchKey = user principal name).\n\nMITRE ATT&CK: T1078.004\n\nFalse positives:\n- Scheduled tests of the emergency procedure. Announce them to the SOC beforehand.\n\nTriage:\n- Is there a declared emergency or a scheduled test? If not, treat it as an incident.\n- System.Collections.Specialized.OrderedDictionary\n- System.Collections.Specialized.OrderedDictionary\n\nPreventive controls:\n- id-hub Level 1 · at least two cloud-only break-glass accounts with passkeys or certificates, excluded only through one group\n- id-hub Level 2 · alerting on break-glass use\n- id-hub Level 3 · break-glass governance with regular tests\n\nSource: identity-threat-detections ITD-E008 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "let BreakGlassAccounts = _GetWatchlist('BreakGlassAccounts') | project UserPrincipalName = tolower(tostring(SearchKey));\nSigninLogs\n| extend UserPrincipalName = tolower(UserPrincipalName)\n| where UserPrincipalName in (BreakGlassAccounts)\n| extend Country = tostring(LocationDetails.countryOrRegion), City = tostring(LocationDetails.city)\n| project TimeGenerated, UserPrincipalName, ResultType, ResultDescription, AppDisplayName, IPAddress, Country, City, UserAgent, ConditionalAccessStatus, CorrelationId",
+      "queryFrequency": "PT5M",
+      "queryPeriod": "PT5M",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "InitialAccess",
+        "Persistence",
+        "PrivilegeEscalation",
+        "DefenseEvasion"
+      ],
+      "techniques": [
+        "T1078"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "UserPrincipalName"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "IPAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "8a9ffbb0-907f-4a74-b8c4-83b2b141a06b",
+    "properties": {
+      "displayName": "ITD-E009 Domain federation or authentication settings changed",
+      "description": "Detects a change of the authentication type or the federation settings of a\ndomain in the tenant. An attacker who converts a domain to federated, or adds\na second token-signing certificate, can issue tokens for any user of that\ndomain from infrastructure they control, including MFA claims. Changes like\nthis are rare and should always be tied to a planned project.\n\nMITRE ATT&CK: T1484.002\n\nFalse positives:\n- Planned migrations between federation and cloud authentication, and planned renewals of AD FS token-signing certificates.\n\nTriage:\n- Is there a change request for this domain?\n- Compare the issuer URI and signing certificate in ModifiedProperties with your known federation servers.\n- If not legitimate, revert the domain to managed authentication, revoke sessions of all users of the domain and investigate the actor.\n\nPreventive controls:\n- id-hub Level 3 · zero standing privilege for Global and Hybrid Identity Administrator\n\nSource: identity-threat-detections ITD-E009 v1.0.0",
+      "severity": "High",
+      "enabled": true,
+      "query": "AuditLogs\n| where OperationName in~ (\"Set domain authentication\", \"Set federation settings on domain\")\n| where Result =~ \"success\"\n| extend DomainName = tostring(TargetResources[0].displayName)\n| extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))\n| extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)\n| extend ModifiedProperties = TargetResources[0].modifiedProperties\n| project TimeGenerated, OperationName, DomainName, Actor, ActorIpAddress, ModifiedProperties, CorrelationId",
+      "queryFrequency": "PT1H",
+      "queryPeriod": "PT1H",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "DefenseEvasion",
+        "PrivilegeEscalation"
+      ],
+      "techniques": [
+        "T1484"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "Actor"
+            }
+          ]
+        },
+        {
+          "entityType": "IP",
+          "fieldMappings": [
+            {
+              "identifier": "Address",
+              "columnName": "ActorIpAddress"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  },
+  {
+    "name": "500a7558-4be7-475b-9364-62f6eb4126cb",
+    "properties": {
+      "displayName": "ITD-E010 Successful sign-in with legacy authentication",
+      "description": "Detects accounts that signed in successfully with a legacy authentication\nprotocol such as IMAP, POP, SMTP AUTH or Exchange ActiveSync with basic\nauthentication. These protocols cannot do MFA, which makes them the preferred\ntarget of password spraying. Once legacy authentication is blocked, every\nsuccess is either an exception you know about or a gap in the policy.\n\nMITRE ATT&CK: T1078.004\n\nFalse positives:\n- Known exceptions such as multifunction printers that send mail through SMTP AUTH. Document them and exclude them by account.\n\nTriage:\n- Is the account a documented exception? If so, check that the exception still has an owner and an end date.\n- If not, find out why the block policy did not apply (excluded user, report-only, other client type) and close the gap.\n- Check the IP addresses for spraying activity (ITD-E007).\n\nPreventive controls:\n- id-hub Level 1 · CA101 block legacy authentication\n\nSource: identity-threat-detections ITD-E010 v1.0.0",
+      "severity": "Medium",
+      "enabled": true,
+      "query": "SigninLogs\n| where ResultType == \"0\"\n| where isnotempty(ClientAppUsed) and ClientAppUsed !in~ (\"Browser\", \"Mobile Apps and Desktop clients\")\n| summarize SignIns = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), IpAddresses = make_set(IPAddress, 20), Apps = make_set(AppDisplayName, 10)\n    by UserPrincipalName, ClientAppUsed",
+      "queryFrequency": "P1D",
+      "queryPeriod": "P1D",
+      "triggerOperator": "GreaterThan",
+      "triggerThreshold": 0,
+      "suppressionEnabled": false,
+      "suppressionDuration": "PT5H",
+      "tactics": [
+        "InitialAccess",
+        "DefenseEvasion"
+      ],
+      "techniques": [
+        "T1078"
+      ],
+      "entityMappings": [
+        {
+          "entityType": "Account",
+          "fieldMappings": [
+            {
+              "identifier": "FullName",
+              "columnName": "UserPrincipalName"
+            }
+          ]
+        }
+      ],
+      "eventGroupingSettings": {
+        "aggregationKind": "AlertPerResult"
+      },
+      "incidentConfiguration": {
+        "createIncident": true,
+        "groupingConfiguration": {
+          "enabled": false,
+          "reopenClosedIncident": false,
+          "lookbackDuration": "PT5H",
+          "matchingMethod": "AllEntities"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,66 @@
+id: 966224c0-65e8-441d-ab14-7b52fce8db10
+detectionId: ITD-E004
+name: Directory role assigned outside Privileged Identity Management
+description: |
+  Detects a permanent directory role assignment that was made directly instead
+  of through Privileged Identity Management. In a tenant that uses PIM, direct
+  assignments bypass approval, justification and time limits. An attacker with
+  a privileged session uses them to give a second account standing privilege
+  that survives the loss of the first.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Persistence
+  - PrivilegeEscalation
+relevantTechniques:
+  - T1098.003
+query: |
+  AuditLogs
+  | where Category =~ "RoleManagement"
+  | where OperationName =~ "Add member to role outside of PIM"
+      or (OperationName =~ "Add member to role" and LoggedByService =~ "Core Directory" and Identity != "MS-PIM")
+  | where Result =~ "success"
+  | mv-apply Property = TargetResources[0].modifiedProperties on (
+      summarize Props = make_bag(bag_pack(tostring(Property.displayName), trim(@'"', tostring(Property.newValue))))
+    )
+  | extend RoleName = tostring(Props["Role.DisplayName"])
+  | extend TargetUser = tostring(TargetResources[0].userPrincipalName), TargetObjectId = tostring(TargetResources[0].id)
+  | extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))
+  | extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)
+  | project TimeGenerated, OperationName, RoleName, TargetUser, TargetObjectId, Actor, ActorIpAddress, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: TargetUser
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Actor
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: ActorIpAddress
+falsePositives:
+  - Break-glass accounts, which keep permanent Global Administrator by design.
+  - Tenants or roles that are not managed with PIM yet. Exclude those roles until they are.
+triage:
+  - Which role was assigned, and to whom? Global, Privileged Role and Privileged Authentication Administrator are critical.
+  - Was the assignment requested through the normal process?
+  - Check the actor's and the target's sign-ins and audit activity since the assignment.
+  - If not legitimate, remove the assignment, revoke both accounts' sessions and review what the target did with the role.
+preventiveControls:
+  - id-hub Level 2 · PIM for all privileged roles
+  - id-hub Level 3 · zero standing privilege, PIM activation with authentication context
+references:
+  - https://attack.mitre.org/techniques/T1098/003/
+  - https://learn.microsoft.com/entra/id-governance/privileged-identity-management/pim-configure
+version: 1.0.0
+kind: Scheduled

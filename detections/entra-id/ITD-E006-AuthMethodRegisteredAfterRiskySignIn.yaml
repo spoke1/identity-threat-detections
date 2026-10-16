@@ -1,0 +1,62 @@
+id: b8a0fc95-f5c8-478a-9ff0-d1fd0da2098d
+detectionId: ITD-E006
+name: Authentication method registered after a risky sign-in
+description: |
+  Detects the registration of a new authentication method within four hours
+  after a medium or high risk sign-in of the same user. After stealing a
+  password or a session, attackers register their own authenticator app or
+  phone number. From then on they pass MFA on their own, and resetting the
+  password no longer locks them out.
+severity: High
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+      - SigninLogs
+queryFrequency: 1h
+queryPeriod: 1d
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Persistence
+  - PrivilegeEscalation
+relevantTechniques:
+  - T1098.005
+query: |
+  let RiskySignIns = SigninLogs
+      | where TimeGenerated > ago(1d)
+      | where RiskLevelDuringSignIn in~ ("medium", "high")
+      | project RiskyTime = TimeGenerated, UserPrincipalName = tolower(UserPrincipalName), RiskLevelDuringSignIn, RiskyIpAddress = IPAddress;
+  AuditLogs
+  | where TimeGenerated > ago(1h)
+  | where OperationName in~ ("User registered security info", "Admin registered security info", "User changed default security info")
+  | where Result =~ "success"
+  | extend UserPrincipalName = tolower(coalesce(tostring(TargetResources[0].userPrincipalName), tostring(InitiatedBy.user.userPrincipalName)))
+  | extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress), Detail = ResultReason
+  | join kind=inner RiskySignIns on UserPrincipalName
+  | where TimeGenerated between (RiskyTime .. (RiskyTime + 4h))
+  | summarize arg_max(RiskyTime, RiskLevelDuringSignIn, RiskyIpAddress) by TimeGenerated, UserPrincipalName, OperationName, Detail, ActorIpAddress, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: UserPrincipalName
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: ActorIpAddress
+falsePositives:
+  - A user who travels, gets flagged as risky and sets up a new phone on the same day.
+  - Risk detections from VPN or anonymising networks that the organisation uses.
+triage:
+  - Compare the IP address of the registration with the risky sign-in and the user's usual locations.
+  - Ask the user, by phone, whether they registered a new method.
+  - If not legitimate, delete the new method, revoke all sessions, reset the password and confirm the remaining methods with the user.
+preventiveControls:
+  - id-hub Level 2 · CA206 security info registration only with MFA or from trusted locations
+  - id-hub Level 1 · Temporary Access Pass for onboarding and recovery
+references:
+  - https://attack.mitre.org/techniques/T1098/005/
+  - https://learn.microsoft.com/entra/identity/authentication/howto-registration-mfa-sspr-combined
+version: 1.0.0
+kind: Scheduled

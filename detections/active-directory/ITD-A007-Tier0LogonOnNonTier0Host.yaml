@@ -1,0 +1,71 @@
+id: 8d3d5735-9970-459c-b42e-ab1087ce2936
+detectionId: ITD-A007
+name: Tier-0 account signed in to a host outside Tier 0
+description: |
+  Detects interactive, remote interactive, batch, service, cached and
+  NewCredentials logons of Tier-0 accounts on hosts that are not Tier-0 assets.
+  These logon types leave reusable credentials in memory. One Domain Admin
+  logon on a workstation or member server turns a compromise of that host into
+  a compromise of the domain; the tiered admin model exists to prevent exactly
+  this. Accounts come from the watchlist Tier0Accounts (SearchKey =
+  sAMAccountName), hosts from the watchlist Tier0Hosts (SearchKey = host name
+  without domain).
+severity: High
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+  - Persistence
+  - PrivilegeEscalation
+  - InitialAccess
+relevantTechniques:
+  - T1078.002
+query: |
+  let Tier0Accounts = _GetWatchlist('Tier0Accounts') | project Account = tolower(tostring(SearchKey));
+  let Tier0Hosts = _GetWatchlist('Tier0Hosts') | project HostName = tolower(tostring(SearchKey));
+  SecurityEvent
+  | where EventID == 4624
+  // 2 interactive, 4 batch, 5 service, 9 NewCredentials, 10 remote interactive, 11 cached interactive
+  | where LogonType in (2, 4, 5, 9, 10, 11)
+  | extend Account = tolower(TargetUserName), HostName = tolower(tostring(split(Computer, ".")[0]))
+  | where Account in (Tier0Accounts)
+  | where HostName !in (Tier0Hosts)
+  | summarize Logons = count(), LogonTypes = make_set(LogonTypeName, 10), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+      by Computer, HostName, TargetAccount, TargetUserName, IpAddress
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: TargetUserName
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IpAddress
+falsePositives:
+  - Privileged access workstations or jump servers that are missing from the Tier0Hosts watchlist.
+  - Scheduled tasks or services on member servers that still run as a Domain Admin. These are findings, not noise; move them to a service account with the rights they need.
+triage:
+  - Which host, which logon type, and who used the account at that time?
+  - Is the host a privileged access workstation that is missing from the watchlist? If so, add it.
+  - If not, treat the account's credentials as exposed on that host. Check the host for compromise, then rotate the account's password and investigate how it got there.
+preventiveControls:
+  - hybrid-workplace-automation · Get-ADTier0Exposure.ps1 findings PrivilegedAccountDelegable and ComputerInPrivilegedGroup (Protected Users, sensitive accounts)
+  - Authentication policies and silos, or user rights assignments that deny Tier-0 logons outside Tier 0
+references:
+  - https://attack.mitre.org/techniques/T1078/002/
+  - https://learn.microsoft.com/security/privileged-access-workstations/privileged-access-access-model
+version: 1.0.0
+kind: Scheduled

@@ -1,0 +1,19 @@
+{
+  "description": "Names of the MITRE ATT&CK (Enterprise) techniques referenced by the detections. Used to render docs/coverage.md; the tests reject techniques that are missing here.",
+  "source": "https://attack.mitre.org/techniques/enterprise/",
+  "techniques": {
+    "T1003.006": "OS Credential Dumping: DCSync",
+    "T1070.001": "Indicator Removal: Clear Windows Event Logs",
+    "T1078.002": "Valid Accounts: Domain Accounts",
+    "T1078.004": "Valid Accounts: Cloud Accounts",
+    "T1098.001": "Account Manipulation: Additional Cloud Credentials",
+    "T1098.003": "Account Manipulation: Additional Cloud Roles",
+    "T1098.005": "Account Manipulation: Device Registration",
+    "T1098.007": "Account Manipulation: Additional Local or Domain Groups",
+    "T1110.003": "Brute Force: Password Spraying",
+    "T1484.002": "Domain or Tenant Policy Modification: Trust Modification",
+    "T1528": "Steal Application Access Token",
+    "T1556.009": "Modify Authentication Process: Conditional Access Policies",
+    "T1558.003": "Steal or Forge Kerberos Tickets: Kerberoasting"
+  }
+}

@@ -1,0 +1,64 @@
+id: e41f3dce-8782-4698-a9fd-432076e74bf4
+detectionId: ITD-A001
+name: Directory replication (DCSync) by an account that is not a domain controller
+description: |
+  Detects directory replication requests for password data from a user account.
+  Domain controllers replicate with their computer accounts. A user account that
+  exercises the replication rights is either the Entra Connect AD DS connector,
+  which is excluded, or someone pulling password hashes, including the krbtgt
+  key, without touching a domain controller's disk.
+  Requires Audit Directory Service Access and an auditing entry on the domain
+  root for the replication rights.
+severity: High
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1003.006
+query: |
+  // DS-Replication-Get-Changes, -Get-Changes-All and -Get-Changes-In-Filtered-Set
+  let ReplicationRights = dynamic(["1131f6aa-9c07-11d1-f79f-00c04fc2dcd2", "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2", "89e95b76-444d-4c62-991a-0facbeda640c"]);
+  SecurityEvent
+  | where EventID == 4662
+  | where ObjectServer =~ "DS"
+  | where AccountType != "Machine" and not(SubjectUserName endswith "$")
+  | where Properties has_any (ReplicationRights)
+  // Entra Connect AD DS connector account (default naming). Add custom connector accounts here.
+  | where not(SubjectUserName startswith "MSOL_")
+  | summarize Events = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+      by Computer, SubjectAccount, SubjectUserName, SubjectUserSid, SubjectLogonId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: SubjectUserName
+      - identifier: Sid
+        columnName: SubjectUserSid
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+falsePositives:
+  - Entra Connect connector accounts with a custom name. Add them to the exclusion.
+  - Identity security tools that read replication data with a dedicated account. Document and exclude them by SID.
+triage:
+  - Treat as critical until proven otherwise; an attacker who replicated the krbtgt key can forge tickets for any account.
+  - Identify the source of the logon session (SubjectLogonId, event 4624 on the same domain controller) to find the requesting host.
+  - If not legitimate, isolate the source host, reset the account, and plan a double krbtgt reset and a reset of all Tier-0 credentials.
+preventiveControls:
+  - hybrid-workplace-automation · Get-ADTier0Exposure.ps1 finding ReplicationRights (no replication rights outside domain controllers)
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+  - https://learn.microsoft.com/windows/security/threat-protection/auditing/event-4662
+version: 1.0.0
+kind: Scheduled

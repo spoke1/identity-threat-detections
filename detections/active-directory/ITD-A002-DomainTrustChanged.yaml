@@ -1,0 +1,56 @@
+id: 7447e2c4-f68d-4f05-9a80-76159243e4ab
+detectionId: ITD-A002
+name: Domain trust created, removed or modified
+description: |
+  Detects the creation, removal or modification of a trust between this domain
+  and another domain or forest. A new or weakened trust (for example SID
+  filtering disabled) opens a path for principals of the other side into this
+  domain. Trust changes are rare, so each one should match a planned change.
+severity: High
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+  - PrivilegeEscalation
+relevantTechniques:
+  - T1484.002
+query: |
+  // 4706 trust created, 4707 trust removed, 4716 trust information modified
+  SecurityEvent
+  | where EventID in (4706, 4707, 4716)
+  | project TimeGenerated, Computer, EventID, Activity, SubjectAccount, SubjectUserName, SubjectUserSid, DomainName, DomainSid, EventData
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: SubjectUserName
+      - identifier: Sid
+        columnName: SubjectUserSid
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+falsePositives:
+  - Planned trust changes during mergers, migrations or the decommissioning of a domain.
+  - Line-of-business software that recreates a trust it depends on. Verify with the vendor and document it.
+triage:
+  - Is there a change request for this trust and partner domain?
+  - Check direction, type and SID filtering in EventData. A trust without SID filtering is especially dangerous.
+  - Correlate with logons of the acting account in the hour before the change.
+  - If not legitimate, remove the trust and investigate the acting account as compromised.
+preventiveControls:
+  - hybrid-workplace-automation · Get-ADTier0Exposure.ps1 (Tier-0 membership limited to the accounts that need it)
+references:
+  - https://attack.mitre.org/techniques/T1484/002/
+  - https://learn.microsoft.com/windows/security/threat-protection/auditing/event-4706
+version: 1.0.0
+kind: Scheduled

@@ -1,0 +1,63 @@
+id: a116998e-dfb6-4ab6-b6b4-1a1355a87c5c
+detectionId: ITD-E001
+name: Conditional Access policy created, changed or deleted
+description: |
+  Detects every change to a Conditional Access policy. Attackers with a privileged
+  session weaken Conditional Access to keep access: they switch a policy off,
+  add their account or a trusted location to the exclusions, or remove the MFA
+  requirement. The query adds the old and new state and flags changed exclusions
+  so the analyst sees at a glance whether the change weakened the policy.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+  - Persistence
+  - CredentialAccess
+relevantTechniques:
+  - T1556.009
+query: |
+  AuditLogs
+  | where OperationName in~ ("Add conditional access policy", "Update conditional access policy", "Delete conditional access policy")
+  | where Result =~ "success"
+  | extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))
+  | extend ActorIpAddress = tostring(InitiatedBy.user.ipAddress)
+  | extend PolicyName = tostring(TargetResources[0].displayName), PolicyId = tostring(TargetResources[0].id)
+  | extend ModifiedProperties = TargetResources[0].modifiedProperties
+  | extend OldPolicy = parse_json(tostring(ModifiedProperties[0].oldValue)), NewPolicy = parse_json(tostring(ModifiedProperties[0].newValue))
+  | extend OldState = tostring(OldPolicy.state), NewState = tostring(NewPolicy.state)
+  | extend ExclusionsChanged = tostring(OldPolicy.conditions.users.excludeUsers) != tostring(NewPolicy.conditions.users.excludeUsers)
+      or tostring(OldPolicy.conditions.users.excludeGroups) != tostring(NewPolicy.conditions.users.excludeGroups)
+      or tostring(OldPolicy.conditions.users.excludeRoles) != tostring(NewPolicy.conditions.users.excludeRoles)
+  | project TimeGenerated, OperationName, PolicyName, PolicyId, OldState, NewState, ExclusionsChanged, Actor, ActorIpAddress, ModifiedProperties, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Actor
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: ActorIpAddress
+falsePositives:
+  - Planned changes by the identity team. Compare with the change calendar; deployments from a pipeline show the automation app as actor.
+  - Microsoft-managed policies, which are changed by Microsoft and show a Microsoft service as actor.
+triage:
+  - Was the change planned and approved? Ask the actor through a channel other than their mailbox.
+  - Did the change weaken the policy? Look at NewState (disabled or report-only) and ExclusionsChanged.
+  - Check the actor's sign-ins of the last 24 hours for unfamiliar locations, devices or risk.
+  - If the change is not legitimate, revert it from the last export of the policies and revoke the actor's sessions.
+preventiveControls:
+  - id-hub Level 3 · zero standing privilege for the Conditional Access Administrator role (PIM with authentication context)
+  - id-hub Level 3 · CA301 phishing-resistant MFA for admins
+references:
+  - https://attack.mitre.org/techniques/T1556/009/
+  - https://learn.microsoft.com/entra/identity/monitoring-health/reference-audit-activities
+version: 1.0.0
+kind: Scheduled

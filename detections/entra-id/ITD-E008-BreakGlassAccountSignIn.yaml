@@ -1,0 +1,56 @@
+id: a4d69a73-15df-4f4f-b321-7252ea5d2554
+detectionId: ITD-E008
+name: Sign-in attempt with a break-glass account
+description: |
+  Detects every sign-in attempt, successful or not, with an emergency access
+  account. Break-glass accounts are excluded from Conditional Access and hold
+  permanent Global Administrator, so any use outside a declared emergency or a
+  scheduled test is an incident. The accounts are read from the watchlist
+  BreakGlassAccounts (SearchKey = user principal name).
+severity: High
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - SigninLogs
+queryFrequency: 5m
+queryPeriod: 5m
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - InitialAccess
+  - Persistence
+  - PrivilegeEscalation
+  - DefenseEvasion
+relevantTechniques:
+  - T1078.004
+query: |
+  let BreakGlassAccounts = _GetWatchlist('BreakGlassAccounts') | project UserPrincipalName = tolower(tostring(SearchKey));
+  SigninLogs
+  | extend UserPrincipalName = tolower(UserPrincipalName)
+  | where UserPrincipalName in (BreakGlassAccounts)
+  | extend Country = tostring(LocationDetails.countryOrRegion), City = tostring(LocationDetails.city)
+  | project TimeGenerated, UserPrincipalName, ResultType, ResultDescription, AppDisplayName, IPAddress, Country, City, UserAgent, ConditionalAccessStatus, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: UserPrincipalName
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IPAddress
+falsePositives:
+  - Scheduled tests of the emergency procedure. Announce them to the SOC beforehand.
+triage:
+  - Is there a declared emergency or a scheduled test? If not, treat it as an incident.
+  - For a failed attempt: someone knows the account name and is trying it. Check the IP address and whether attempts continue.
+  - For a successful sign-in without an emergency: rotate the credentials, review every audit log entry of the account since the sign-in and escalate.
+preventiveControls:
+  - id-hub Level 1 · at least two cloud-only break-glass accounts with passkeys or certificates, excluded only through one group
+  - id-hub Level 2 · alerting on break-glass use
+  - id-hub Level 3 · break-glass governance with regular tests
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://learn.microsoft.com/entra/identity/role-based-access-control/security-emergency-access
+version: 1.0.0
+kind: Scheduled

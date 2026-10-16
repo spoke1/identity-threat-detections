@@ -1,0 +1,53 @@
+id: f9e19f6f-7cc7-4c34-8dbf-4e2ac8eab090
+detectionId: ITD-E005
+name: Successful sign-in with the device code flow
+description: |
+  Detects successful sign-ins that used the OAuth device code flow. Device code
+  phishing sends the victim a legitimate Microsoft sign-in page with a code the
+  attacker generated. The victim completes MFA, and the attacker's device
+  receives the tokens. Most users never need this flow, so every successful use
+  outside the known exceptions deserves a look.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - SigninLogs
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1528
+query: |
+  SigninLogs
+  | where AuthenticationProtocol =~ "deviceCode" or OriginalTransferMethod =~ "deviceCodeFlow"
+  | where ResultType == "0"
+  | extend Country = tostring(LocationDetails.countryOrRegion), City = tostring(LocationDetails.city)
+  | extend DeviceOs = tostring(DeviceDetail.operatingSystem), DeviceCompliant = tostring(DeviceDetail.isCompliant)
+  | project TimeGenerated, UserPrincipalName, AppDisplayName, ResourceDisplayName, IPAddress, Country, City, DeviceOs, DeviceCompliant, UserAgent, ConditionalAccessStatus, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: UserPrincipalName
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IPAddress
+falsePositives:
+  - Admins who sign in to the Azure CLI or PowerShell on headless hosts.
+  - Meeting room devices and other input-constrained devices that are enrolled with a device code.
+triage:
+  - Does the user know the sign-in? Ask by phone or chat, not by email.
+  - Is the IP address or country unusual for the user, or different from the user's other sign-ins at the same time?
+  - Did the user receive a message with a code and a link to microsoft.com/devicelogin shortly before?
+  - If not legitimate, revoke the user's sessions and refresh tokens, and review mail and file access since the sign-in.
+preventiveControls:
+  - id-hub Level 2 · CA209 block device code flow
+references:
+  - https://attack.mitre.org/techniques/T1528/
+  - https://learn.microsoft.com/entra/identity/conditional-access/concept-authentication-flows
+version: 1.0.0
+kind: Scheduled
